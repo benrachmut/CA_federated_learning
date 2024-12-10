@@ -26,8 +26,8 @@ learning_rate = 0.001
 
 #----------------
 
-num_classes = 2
-identical_clients = 2
+num_classes = 3
+identical_clients = 1
 
 num_clients = num_classes*identical_clients
 #----------------
