@@ -128,7 +128,7 @@ class LearningEntity(ABC):
     def iteration_context(self,t):
         pass
 
-    def train(self, mean_pseudo_labels):
+    def train__(self, mean_pseudo_labels):
         print(f"*** {self.__str__()} train ***")
 
         #if self.weights is None:
@@ -182,7 +182,7 @@ class LearningEntity(ABC):
             print(f"Epoch [{epoch + 1}/{epochs_num_input}], Loss: {epoch_loss / len(server_loader):.4f}")
             #self.weights = self.model.state_dict()
 
-    def train__(self,mean_pseudo_labels):
+    def train(self,mean_pseudo_labels):
 
 
         print(f"*** {self.__str__()} train ***")
@@ -411,7 +411,7 @@ class Server(LearningEntity):
         self.received_pseudo_labels = {}
         self.clients_ids = clients_ids
         self.reset_clients_received_pl()
-        self.model = get_server_model()
+        self.model = get_client_model()
         self.weights = None
 
 
@@ -427,11 +427,12 @@ class Server(LearningEntity):
         self.server_split_ratio = server_split_ratio
         if with_server_net:
             mean_pseudo_labels = self.get_mean_pseudo_labels()  # #
-            self.model = get_server_model()
+            #self.model = get_server_model()
             #self.model.apply(self.initialize_weights)
 
             self.train(mean_pseudo_labels)
             self.pseudo_label_to_send = self.evaluate()
+
 
         else:
             self.pseudo_label_to_send = self.get_mean_pseudo_labels()
@@ -462,7 +463,6 @@ class Server(LearningEntity):
 
     def __str__(self):
         return "server"
-
 
 
 

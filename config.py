@@ -27,12 +27,12 @@ learning_rate = 0.001
 #----------------
 
 num_classes = 3
-identical_clients = 1
+identical_clients = 2
 
 num_clients = num_classes*identical_clients
 #----------------
 num_clusters = 1
-percent_train_data_use = 1
+percent_train_data_use = 0.1
 percent_test_relative_to_train = 1
 server_net_type = NetType.VGG
 client_net_type = NetType.ALEXNET
@@ -96,5 +96,4 @@ def file_name():
     for k,v in get_meta_data().items():
         ans = ans+k+"_"+str(v[0])+"__"
     return ans
-
 

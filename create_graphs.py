@@ -5,7 +5,7 @@ from config import *
 
 import numpy as np
 
-file_path = 'num_clusters_1_Mix_Percentage_0.2_Epochs_10_Iterations_50_Server_Split_Ratio_0.2_Num_Classes_4_Identical_Clients_2with_server_netTrue.pkl'
+file_path = 'num_clusters_1_Mix_Percentage_0.2_Epochs_10_Iterations_50_Server_Split_Ratio_0.2_Num_Classes_2_Identical_Clients_2with_server_netFalse.pkl'
 
 
 
@@ -62,7 +62,7 @@ def finalize_plot():
     """
     plt.xlabel("Iterations")
     plt.ylabel("Accuracy")
-    plt.title("Validation: Clients Accuracy and Average")
+    plt.title("Client Accuracies and Average")
     plt.legend(title="Clients")
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.show()

@@ -1,5 +1,4 @@
 import copy
-import random
 
 from torch.utils.data import DataLoader, ConcatDataset, TensorDataset
 from entities import *
@@ -45,10 +44,10 @@ def get_split_train_client_data(clients_data_dict):
     Returns:
         dict: New dictionary with the same structure but containing the reduced data.
     """
-    reduced_data_list = []
+    data_to_mix = []
     clients_original_data_dict = {}
     for class_name, image_groups in clients_data_dict.items():
-        #reduced_image_groups = []
+        reduced_image_groups = []
         clients_original_image_group = []
         for group in image_groups:
             # Calculate the number of items to include based on the percentage
@@ -57,63 +56,50 @@ def get_split_train_client_data(clients_data_dict):
             split_sizes = [images_left,num_images_to_include]
             splits = random_split(group, split_sizes)
             clients_original_image_group.append(splits[0])
-            reduced_data_list.extend(splits[1])
+            for image_ in splits[1]:
+                reduced_image_groups.append(image_)
 
         clients_original_data_dict[class_name] = clients_original_image_group
-        #reduced_data_dict[class_name] = reduced_image_groups
-
-    return clients_original_data_dict,reduced_data_list
-
-
-def filter_images_by_class(image_list, selected_class):
+        data_to_mix.extend(reduced_image_groups)
+        rnd.seed(17)
+        rnd.shuffle(data_to_mix)
+    return clients_original_data_dict,data_to_mix
 
 
-    images_with_selected_class = []
-    images_with_other_classes = []
 
-    for image, label in image_list:
-        if label == selected_class:
-            images_with_selected_class.append((image, label))
-        else:
-            images_with_other_classes.append((image, label))
-
-    return images_with_selected_class, images_with_other_classes
-
-def complete_client_data(clients_data_dict, data_to_mix_list,complete_size):
-    """
-    Completes each client's data in clients_data_dict to the target size
-    using data from split_train_client_data, ensuring the additional data
-    comes from different classes.
-
-    Args:
-        clients_data_dict (dict): Original client data, with keys as class names and values as lists of image lists.
-        split_train_client_data (dict): Additional data to use for completion.
-        target_size (int): Desired size for each client's list.
-
-    Returns:
-        dict: Updated clients_data_dict with completed data.
-    """
+def complete_client_data(clients_data_dict, data_to_mix,data_size_per_client):
     ans={}
     counter = 0
     for class_name, client_lists in clients_data_dict.items():
-        counter = counter+1
         ans[class_name] = []
         for client_list in client_lists:
-            counter = counter + 1
+            counter = +1
+            new_subset = []
+
+            new_data_to_mix = []
+
+
+            for image in client_list:
+                new_subset.append(image)
+
+            for image in data_to_mix:
+                if len(new_subset) < data_size_per_client and image[1] != class_name:
+                    new_subset.append(image)
+                else:
+                    new_data_to_mix.append(image)
+            data_to_mix = new_data_to_mix
+
+            #other_classes = list(data_to_mix.keys())
+            #if class_name in other_classes:
+                #other_classes.remove(class_name)
             #other_class_selected = rnd.choice(other_classes)
-            images_with_selected_class, images_with_other_classes = filter_images_by_class(data_to_mix_list,class_name)
-            random.shuffle(images_with_other_classes)
-            print("stop here!!")
-            data_to_mix_list = images_with_selected_class.extend(images_with_other_classes)
-
-
 
             #other_data_selected = data_to_mix[other_class_selected].pop(0)
             #if len(data_to_mix[other_class_selected])==0:
             #    del data_to_mix[other_class_selected]
-            new_subset = []
-            for image in client_list:new_subset.append(image)
-            #for image in other_data_selected: new_subset.append(image)
+
+            #for image in other_data_selected:
+            #    new_subset.append(image)
             rnd.seed(counter*17)
             rnd.shuffle(new_subset)
             new_td = transform_to_TensorDataset(new_subset)
@@ -157,6 +143,10 @@ def transform_to_TensorDataset(data_):
     # Step 3: Create a TensorDataset from the images and targets
     return TensorDataset(images_tensor, targets_tensor)
 
+
+
+
+
 def get_split_between_entities(data_by_classification_dict, selected_classes):
     server_data_dict = {}
     clients_data_dict = {}
@@ -166,15 +156,15 @@ def get_split_between_entities(data_by_classification_dict, selected_classes):
         size_use = int(percent_train_data_use * train_set_size)
         data_of_class = cut_data(data_of_class, size_use)
         client_data_per_class, server_data_per_class = split_clients_server_data(data_of_class)
+        data_size_per_client = len(client_data_per_class[0])
         clients_data_dict[class_target] = client_data_per_class
         server_data_dict[class_target] = server_data_per_class
     server_data = create_server_data(server_data_dict)
     rnd.seed(42)
     rnd.shuffle(server_data)
     server_data = transform_to_TensorDataset(server_data)
-    complete_size =len(clients_data_dict[class_target][0])
-    clients_data_dict, data_to_mix_list = get_split_train_client_data(clients_data_dict)
-    clients_data_dict = complete_client_data(clients_data_dict, data_to_mix_list,complete_size)
+    clients_data_dict, data_to_mix = get_split_train_client_data(clients_data_dict)
+    clients_data_dict = complete_client_data(clients_data_dict, data_to_mix,data_size_per_client)
 
 
 
