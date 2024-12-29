@@ -24,6 +24,8 @@ class RecordData:
         self.identical_clients =identical_clients
         self.num_clusters= num_clusters
         self.with_server_net = with_server_net
+        self.server_net = server_net_type.name
+        self.client_net = client_net_type.name
         self.summary = (
             f"num_clusters_{num_clusters}_"
             f"Mix_Percentage_{mix_percentage}_"
@@ -33,6 +35,9 @@ class RecordData:
             f"Num_Classes_{num_classes}_"
             f"Identical_Clients_{identical_clients}"
             f"with_server_net{with_server_net}"
+            f"server_net{server_net_type.name}"
+            f"client_net{client_net_type.name}"
+
         )
 
 def create_record_data(clients, server):

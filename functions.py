@@ -174,6 +174,47 @@ def get_split_between_entities(data_by_classification_dict, selected_classes):
 
 
 
+def split_clients_server_data_IID(train_set,server_split_ratio):
+    """
+        Splits the input training dataset into subsets for multiple clients and the server.
+
+        Args:
+        - train_set: The full training dataset to be split.
+
+        Returns:
+        - client_data_sets: A list of datasets for each client.
+        - server_data: A dataset for the server.
+
+        The function dynamically allocates the training data based on the number of clients and a specified split ratio for the server.
+        """
+
+    total_client_data_size = int((1-server_split_ratio) * len(train_set))
+    server_data_size = len(train_set) - total_client_data_size
+    client_data_size = total_client_data_size // num_clients  # Each client gets an equal share
+    split_sizes = [client_data_size] * num_clients  # List of client dataset sizes
+    split_sizes.append(server_data_size)  # Add the remaining data for the server
+    seed = 42
+    torch.manual_seed(seed)
+    splits = random_split(train_set, split_sizes)
+    client_data_sets = splits[:-1]  # All client datasets
+    server_data = splits[-1]
+
+    return client_data_sets, server_data
+
+
+def change_format_of_clients_data_dict(client_data_sets):
+    clients_data_dict = {}
+    counter = 0
+
+    for single_set in client_data_sets:
+        image_list = []
+        for set_ in single_set:
+            image_list.append(set_)
+        clients_data_dict[counter] = transform_to_TensorDataset(image_list)
+        counter += 1
+    return clients_data_dict
+
+
 def get_train_set():
     transform = transforms.Compose([
         transforms.RandomHorizontalFlip(),  # Data augmentation
@@ -186,7 +227,16 @@ def get_train_set():
     train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
     data_by_classification_dict = get_data_by_classification(train_set)
     selected_classes_list = sorted(data_by_classification_dict.keys())[:num_classes]
-    clients_data_dict, server_data = get_split_between_entities(data_by_classification_dict, selected_classes_list)
+
+    if mix_percentage == 1:
+        client_data_sets, server_data = split_clients_server_data_IID(train_set, server_split_ratio)
+
+        clients_data_dict = change_format_of_clients_data_dict(client_data_sets)
+        server_data = transform_to_TensorDataset(server_data)
+
+        print()
+    else:
+        clients_data_dict, server_data = get_split_between_entities(data_by_classification_dict, selected_classes_list)
     return selected_classes_list, clients_data_dict, server_data
 
 

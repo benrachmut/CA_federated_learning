@@ -16,7 +16,8 @@ from abc import ABC, abstractmethod
 # Define AlexNet for clients
 
 def get_file_name(server_split_ratio):
-    return f"data_server_{round(server_split_ratio,ndigits=2):.1f},data_use_"+str(percent_train_data_use)+"_with_server_net_"+str(with_server_net)+"_epoch_num_"+str(epochs_num_input)
+    return \
+        f"data_server_{round(server_split_ratio,ndigits=2):.1f},data_use_"+str(percent_train_data_use)+"_with_server_net_"+str(with_server_net)+"_epoch_num_"+str(epochs_num_input)
 
 
 class AlexNet(nn.Module):
@@ -128,7 +129,7 @@ class LearningEntity(ABC):
     def iteration_context(self,t):
         pass
 
-    def train__(self, mean_pseudo_labels):
+    def train(self, mean_pseudo_labels):
         print(f"*** {self.__str__()} train ***")
 
         #if self.weights is None:
@@ -149,7 +150,7 @@ class LearningEntity(ABC):
 
         # Define the criterion and optimizer
         criterion = nn.KLDivLoss(reduction='batchmean')
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate_train)
 
         # Move pseudo-labels to the same device as the model
         pseudo_targets_all = mean_pseudo_labels.to(device)
@@ -162,7 +163,7 @@ class LearningEntity(ABC):
                 # Move inputs and pseudo-targets to the appropriate device
                 print(batch_idx)
                 inputs = inputs.to(device)
-                pseudo_targets = pseudo_targets_all[indices]  # Map indices to pseudo-labels
+                pseudo_targets = pseudo_targets_all[indices].to(device)   # Map indices to pseudo-labels
 
                 # Forward pass
                 outputs = self.model(inputs)
@@ -182,7 +183,7 @@ class LearningEntity(ABC):
             print(f"Epoch [{epoch + 1}/{epochs_num_input}], Loss: {epoch_loss / len(server_loader):.4f}")
             #self.weights = self.model.state_dict()
 
-    def train(self,mean_pseudo_labels):
+    def train__(self,mean_pseudo_labels):
 
 
         print(f"*** {self.__str__()} train ***")
@@ -191,7 +192,7 @@ class LearningEntity(ABC):
 
         self.model.train()
         criterion = nn.KLDivLoss(reduction='batchmean')
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate_train)
 
         pseudo_targets_all = mean_pseudo_labels.to(device)
 
@@ -307,6 +308,7 @@ class LearningEntity(ABC):
                 correct += (predicted == targets).sum().item()
 
         accuracy = 100 * correct / total  # Calculate accuracy as a percentage
+        print("accuracy is",str(accuracy))
         return accuracy
 
     def evaluate_test_loss(self):
@@ -344,7 +346,7 @@ class Client(LearningEntity):
         self.class_ = class_
         self.epoch_count = 0
         self.model = get_client_model()
-        #self.model.apply(self.initialize_weights)
+        self.model.apply(self.initialize_weights)
 
         self.weights = None
         self.global_data =global_data
@@ -411,7 +413,9 @@ class Server(LearningEntity):
         self.received_pseudo_labels = {}
         self.clients_ids = clients_ids
         self.reset_clients_received_pl()
-        self.model = get_client_model()
+        self.model = get_server_model()
+        self.model.apply(self.initialize_weights)
+
         self.weights = None
 
 
