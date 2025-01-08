@@ -1,13 +1,9 @@
-import threading
-import random
-
-import pandas as pd
-
+import numpy as np
 import torch
 import torchvision
-import torchvision.transforms as transforms
-from torch import nn, optim
-from torch.utils.data import DataLoader, random_split
+from sklearn.cluster import KMeans
+from torch import nn
+from torch.utils.data import DataLoader
 from config import *
 import torch.nn.functional as F
 
@@ -17,7 +13,7 @@ from abc import ABC, abstractmethod
 
 def get_file_name(server_split_ratio):
     return \
-        f"data_server_{round(server_split_ratio,ndigits=2):.1f},data_use_"+str(percent_train_data_use)+"_with_server_net_"+str(with_server_net)+"_epoch_num_"+str(epochs_num_input)
+        f"data_server_{round(server_split_ratio,ndigits=2):.1f},data_use_"+str(experiment_config.percent_train_data_use)+"_with_server_net_"+str(experiment_config.with_server_net)+"_epoch_num_"+str(experiment_config.epochs_num_input)
 
 
 class AlexNet(nn.Module):
@@ -71,17 +67,17 @@ class VGGServer(nn.Module):
 
 
 def get_client_model():
-    if client_net_type == NetType.ALEXNET:
-        return AlexNet(num_classes=num_classes).to(device)
-    if client_net_type == NetType.VGG:
-        return VGGServer(num_classes=num_classes).to(device)
+    if experiment_config.client_net_type == NetType.ALEXNET:
+        return AlexNet(num_classes=experiment_config.num_classes).to(device)
+    if experiment_config.client_net_type == NetType.VGG:
+        return VGGServer(num_classes=experiment_config.num_classes).to(device)
 
 
 def get_server_model():
-    if server_net_type == NetType.ALEXNET:
-        return AlexNet(num_classes=num_classes).to(device)
-    if server_net_type == NetType.VGG:
-        return VGGServer(num_classes=num_classes).to(device)
+    if experiment_config.server_net_type == NetType.ALEXNET:
+        return AlexNet(num_classes=experiment_config.num_classes).to(device)
+    if experiment_config.server_net_type == NetType.VGG:
+        return VGGServer(num_classes=experiment_config.num_classes).to(device)
 
 
 
@@ -116,11 +112,13 @@ class LearningEntity(ABC):
         #    self.model.apply(self.weights)
 
     def iterate(self,t):
+        if experiment_config.with_weight_memory ==False:
+            self.model.apply(self.initialize_weights)
         #self.set_weights()
         torch.manual_seed(self.num+t*17)
         torch.cuda.manual_seed(self.num+t*17)
         self.iteration_context(t)
-        if isinstance(self,Client) or (isinstance(self,Server) and with_server_net):
+        if isinstance(self,Client) or (isinstance(self,Server) and experiment_config.with_server_net):
             self.loss_measures[t]=self.evaluate_test_loss()
             self.accuracy_test_measures[t]=self.evaluate_accuracy(self.test_set)
             self.accuracy_pl_measures[t]=self.evaluate_accuracy(self.global_data)
@@ -129,132 +127,13 @@ class LearningEntity(ABC):
     def iteration_context(self,t):
         pass
 
-    def train(self, mean_pseudo_labels):
-        print(f"*** {self.__str__()} train ***")
 
-        #if self.weights is None:
-        #    self.model.apply(self.initialize_weights)
-        #else:
-        #    self.model.load_state_dict(self.weights)
-
-        # Create a DataLoader from the provided dataset
-        server_loader = DataLoader(
-            self.global_data,
-            batch_size=batch_size,
-            shuffle=False,
-            drop_last=True
-        )
-
-        # Set the model to training mode
-        self.model.train()
-
-        # Define the criterion and optimizer
-        criterion = nn.KLDivLoss(reduction='batchmean')
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate_train)
-
-        # Move pseudo-labels to the same device as the model
-        pseudo_targets_all = mean_pseudo_labels.to(device)
-
-        # Training loop
-        for epoch in range(epochs_num_input):
-            epoch_loss = 0.0
-
-            for batch_idx, (inputs, indices) in enumerate(server_loader):
-                # Move inputs and pseudo-targets to the appropriate device
-                print(batch_idx)
-                inputs = inputs.to(device)
-                pseudo_targets = pseudo_targets_all[indices].to(device)   # Map indices to pseudo-labels
-
-                # Forward pass
-                outputs = self.model(inputs)
-
-                # Compute the loss
-                loss = criterion(F.log_softmax(outputs, dim=1), pseudo_targets)
-
-                # Backward pass and optimization
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                # Accumulate loss for the epoch
-                epoch_loss += loss.item()
-
-            # Print loss for the epoch
-            print(f"Epoch [{epoch + 1}/{epochs_num_input}], Loss: {epoch_loss / len(server_loader):.4f}")
-            #self.weights = self.model.state_dict()
-
-    def train__(self,mean_pseudo_labels):
-
-
-        print(f"*** {self.__str__()} train ***")
-        server_loader = DataLoader(self.global_data, batch_size=batch_size, shuffle=False, num_workers=4,
-                                   drop_last=True)
-
-        self.model.train()
-        criterion = nn.KLDivLoss(reduction='batchmean')
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate_train)
-
-        pseudo_targets_all = mean_pseudo_labels.to(device)
-
-        for epoch in range(epochs_num_input):
-            self.epoch_count += 1
-            epoch_loss = 0
-
-            for batch_idx, (inputs, _) in enumerate(server_loader):
-                inputs = inputs.to(device)
-                optimizer.zero_grad()
-
-                outputs = self.model(inputs)
-                # Check for NaN or Inf in outputs
-
-                # Convert model outputs to log probabilities
-                outputs_prob = F.log_softmax(outputs, dim=1)
-                # Slice pseudo_targets to match the input batch size
-                start_idx = batch_idx * batch_size
-                end_idx = start_idx + inputs.size(0)
-                pseudo_targets = pseudo_targets_all[start_idx:end_idx].to(device)
-
-                # Check if pseudo_targets size matches the input batch size
-                if pseudo_targets.size(0) != inputs.size(0):
-                    print(
-                        f"Skipping batch {batch_idx}: Expected pseudo target size {inputs.size(0)}, got {pseudo_targets.size(0)}")
-                    continue  # Skip the rest of the loop for this batch
-
-                # Check for NaN or Inf in pseudo targets
-                if torch.isnan(pseudo_targets).any() or torch.isinf(pseudo_targets).any():
-                    print(f"NaN or Inf found in pseudo targets at batch {batch_idx}: {pseudo_targets}")
-                    continue
-
-                # Normalize pseudo targets to sum to 1
-                pseudo_targets = F.softmax(pseudo_targets, dim=1)
-
-                # Calculate the loss
-                loss = criterion(outputs_prob, pseudo_targets)
-
-                # Check if the loss is NaN or Inf
-                if torch.isnan(loss) or torch.isinf(loss):
-                    print(f"NaN or Inf loss encountered at batch {batch_idx}: {loss}")
-                    continue
-
-                loss.backward()
-
-                # Clip gradients
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-
-                optimizer.step()
-                epoch_loss += loss.item()
-
-            avg_loss = epoch_loss / len(server_loader)
-            print(f"Epoch [{epoch + 1}/{epochs_num_input}], Loss: {avg_loss:.4f}")
-
-        self.weights =self.model.state_dict()
-        return avg_loss
 
     def evaluate(self):
         print("*** Generating Pseudo-Labels with Probabilities ***")
 
         # Create a DataLoader for the global data
-        global_data_loader = DataLoader(self.global_data, batch_size=batch_size, shuffle=False)
+        global_data_loader = DataLoader(self.global_data, batch_size=experiment_config.batch_size, shuffle=False)
 
         self.model.eval()  # Set the model to evaluation mode
 
@@ -291,7 +170,7 @@ class LearningEntity(ABC):
         correct = 0  # To count the correct predictions
         total = 0  # To count the total predictions
 
-        test_loader = DataLoader(data_, batch_size=batch_size, shuffle=False)
+        test_loader = DataLoader(data_, batch_size=experiment_config.batch_size, shuffle=False)
 
         with torch.no_grad():  # No need to track gradients during evaluation
             for inputs, targets in test_loader:
@@ -314,7 +193,7 @@ class LearningEntity(ABC):
     def evaluate_test_loss(self):
         """Evaluate the model on the test set and return the loss."""
         self.model.eval()  # Set the model to evaluation mode
-        test_loader = DataLoader(self.test_set, batch_size=batch_size, shuffle=True)
+        test_loader = DataLoader(self.test_set, batch_size=experiment_config.batch_size, shuffle=True)
 
         criterion = nn.CrossEntropyLoss()  # Define the loss function
         total_loss = 0.0
@@ -338,6 +217,74 @@ class LearningEntity(ABC):
         # Return average loss
         return ans  # Avoid division by zero
 
+    def train(self,mean_pseudo_labels):
+
+
+        print(f"*** {self.__str__()} train ***")
+        server_loader = DataLoader(self.global_data, batch_size=experiment_config.batch_size, shuffle=False, num_workers=4,
+                                   drop_last=True)
+
+        self.model.train()
+        criterion = nn.KLDivLoss(reduction='batchmean')
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.train_learning_rate)
+
+        pseudo_targets_all = mean_pseudo_labels.to(device)
+
+        for epoch in range(experiment_config.epochs_num_train):
+            self.epoch_count += 1
+            epoch_loss = 0
+
+            for batch_idx, (inputs, _) in enumerate(server_loader):
+                inputs = inputs.to(device)
+                optimizer.zero_grad()
+
+                outputs = self.model(inputs)
+                # Check for NaN or Inf in outputs
+
+                # Convert model outputs to log probabilities
+                outputs_prob = F.log_softmax(outputs, dim=1)
+                # Slice pseudo_targets to match the input batch size
+                start_idx = batch_idx * experiment_config.batch_size
+                end_idx = start_idx + inputs.size(0)
+                pseudo_targets = pseudo_targets_all[start_idx:end_idx].to(device)
+
+                # Check if pseudo_targets size matches the input batch size
+                if pseudo_targets.size(0) != inputs.size(0):
+                    print(
+                        f"Skipping batch {batch_idx}: Expected pseudo target size {inputs.size(0)}, got {pseudo_targets.size(0)}")
+                    continue  # Skip the rest of the loop for this batch
+
+                # Check for NaN or Inf in pseudo targets
+                if torch.isnan(pseudo_targets).any() or torch.isinf(pseudo_targets).any():
+                    print(f"NaN or Inf found in pseudo targets at batch {batch_idx}: {pseudo_targets}")
+                    continue
+
+                # Normalize pseudo targets to sum to 1
+                pseudo_targets = F.softmax(pseudo_targets, dim=1)
+
+                # Calculate the loss
+                loss = criterion(outputs_prob, pseudo_targets)
+
+                # Check if the loss is NaN or Inf
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print(f"NaN or Inf loss encountered at batch {batch_idx}: {loss}")
+                    continue
+
+                loss.backward()
+
+                # Clip gradients
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+
+                optimizer.step()
+                epoch_loss += loss.item()
+
+            avg_loss = epoch_loss / len(server_loader)
+            print(f"Epoch [{epoch + 1}/{experiment_config.epochs_num_train}], Loss: {avg_loss:.4f}")
+
+        self.weights =self.model.state_dict()
+        return avg_loss
+
+
 class Client(LearningEntity):
     def __init__(self, id_, client_data, global_data,test_data,class_):
         LearningEntity.__init__(self,id_,global_data,test_data)
@@ -347,7 +294,7 @@ class Client(LearningEntity):
         self.epoch_count = 0
         self.model = get_client_model()
         self.model.apply(self.initialize_weights)
-
+        self.train_learning_rate = experiment_config.learning_rate_train_c
         self.weights = None
         self.global_data =global_data
 
@@ -374,16 +321,16 @@ class Client(LearningEntity):
         #    self.model.load_state_dict(self.weights)
 
         # Create a DataLoader for the local data
-        fine_tune_loader = DataLoader(self.local_data, batch_size=batch_size, shuffle=True)
+        fine_tune_loader = DataLoader(self.local_data, batch_size=experiment_config.batch_size, shuffle=True)
         self.model.train()  # Set the model to training mode
 
         # Define loss function and optimizer
 
         criterion = nn.CrossEntropyLoss()
 
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=experiment_config.learning_rate)
 
-        for epoch in range(epochs_num_input):
+        for epoch in range(experiment_config.epochs_num_input):
             self.epoch_count += 1
             epoch_loss = 0
             for inputs, targets in fine_tune_loader:
@@ -399,10 +346,11 @@ class Client(LearningEntity):
                 epoch_loss += loss.item()
 
             result_to_print = epoch_loss / len(fine_tune_loader)
-            print(f"Epoch [{epoch + 1}/{epochs_num_input}], Loss: {result_to_print:.4f}")
+            print(f"Epoch [{epoch + 1}/{experiment_config.epochs_num_input}], Loss: {result_to_print:.4f}")
         #self.weights = self.model.state_dict()self.weights = self.model.state_dict()
 
         return  result_to_print
+
 
 
 class Server(LearningEntity):
@@ -415,6 +363,7 @@ class Server(LearningEntity):
         self.reset_clients_received_pl()
         self.model = get_server_model()
         self.model.apply(self.initialize_weights)
+        self.train_learning_rate = experiment_config.learning_rate_train_s
 
         self.weights = None
 
@@ -428,11 +377,9 @@ class Server(LearningEntity):
 
     def iteration_context(self,t):
         self.current_iteration = t
-        self.server_split_ratio = server_split_ratio
-        if with_server_net:
+        self.server_split_ratio = experiment_config.server_split_ratio
+        if experiment_config.with_server_net:
             mean_pseudo_labels = self.get_mean_pseudo_labels()  # #
-            #self.model = get_server_model()
-            #self.model.apply(self.initialize_weights)
 
             self.train(mean_pseudo_labels)
             self.pseudo_label_to_send = self.evaluate()
@@ -451,9 +398,42 @@ class Server(LearningEntity):
         for id_ in self.clients_ids:
             self.received_pseudo_labels[id_] = None
 
+
+    def k_means_grouping(self, k):
+        """
+        Groups agents into k clusters based on the similarity of their pseudo-labels.
+
+        Args:
+            k (int): Number of clusters for k-means.
+
+        Returns:
+            dict: A dictionary where keys are cluster indices (0 to k-1) and values are lists of client IDs in that cluster.
+        """
+        # Use self.received_pseudo_labels as client data
+        client_data = self.received_pseudo_labels
+
+        # Extract client IDs and pseudo-labels
+        client_ids = list(client_data.keys())
+        pseudo_labels = [client_data[client_id].flatten().numpy() for client_id in client_ids]
+
+        # Stack pseudo-labels into a matrix for clustering
+        data_matrix = np.vstack(pseudo_labels)
+
+        # Apply k-means clustering
+        kmeans = KMeans(n_clusters=k, random_state=42)
+        cluster_assignments = kmeans.fit_predict(data_matrix)
+
+        # Group client IDs by cluster
+        clusters = {i: [] for i in range(k)}
+        for client_id, cluster in zip(client_ids, cluster_assignments):
+            clusters[cluster].append(client_id)
+
+        return clusters
     def get_mean_pseudo_labels(self):
         # Stack the pseudo labels tensors into a single tensor
-
+        if experiment_config.num_clusters>1:
+            clusters = self.k_means_grouping(experiment_config.num_clusters)
+            stop here! I have the clusters by client id
         pseudo_labels_list = list(self.received_pseudo_labels.values())
 
         stacked_labels = torch.stack(pseudo_labels_list)
@@ -463,6 +443,72 @@ class Server(LearningEntity):
 
         return average_pseudo_labels
 
+    def train(self,mean_pseudo_labels):
+
+
+        print(f"*** {self.__str__()} train ***")
+        server_loader = DataLoader(self.global_data, batch_size=experiment_config.batch_size, shuffle=False, num_workers=4,
+                                   drop_last=True)
+
+        self.model.train()
+        criterion = nn.KLDivLoss(reduction='batchmean')
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=experiment_config.learning_rate_train_s)
+
+        pseudo_targets_all = mean_pseudo_labels.to(device)
+
+        for epoch in range(experiment_config.epochs_num_train):
+            self.epoch_count += 1
+            epoch_loss = 0
+
+            for batch_idx, (inputs, _) in enumerate(server_loader):
+                inputs = inputs.to(device)
+                optimizer.zero_grad()
+
+                outputs = self.model(inputs)
+                # Check for NaN or Inf in outputs
+
+                # Convert model outputs to log probabilities
+                outputs_prob = F.log_softmax(outputs, dim=1)
+                # Slice pseudo_targets to match the input batch size
+                start_idx = batch_idx * experiment_config.batch_size
+                end_idx = start_idx + inputs.size(0)
+                pseudo_targets = pseudo_targets_all[start_idx:end_idx].to(device)
+
+                # Check if pseudo_targets size matches the input batch size
+                if pseudo_targets.size(0) != inputs.size(0):
+                    print(
+                        f"Skipping batch {batch_idx}: Expected pseudo target size {inputs.size(0)}, got {pseudo_targets.size(0)}")
+                    continue  # Skip the rest of the loop for this batch
+
+                # Check for NaN or Inf in pseudo targets
+                if torch.isnan(pseudo_targets).any() or torch.isinf(pseudo_targets).any():
+                    print(f"NaN or Inf found in pseudo targets at batch {batch_idx}: {pseudo_targets}")
+                    continue
+
+                # Normalize pseudo targets to sum to 1
+                pseudo_targets = F.softmax(pseudo_targets, dim=1)
+
+                # Calculate the loss
+                loss = criterion(outputs_prob, pseudo_targets)
+
+                # Check if the loss is NaN or Inf
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print(f"NaN or Inf loss encountered at batch {batch_idx}: {loss}")
+                    continue
+
+                loss.backward()
+
+                # Clip gradients
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+
+                optimizer.step()
+                epoch_loss += loss.item()
+
+            avg_loss = epoch_loss / len(server_loader)
+            print(f"Epoch [{epoch + 1}/{experiment_config.epochs_num_train}], Loss: {avg_loss:.4f}")
+
+        self.weights =self.model.state_dict()
+        return avg_loss
 
 
     def __str__(self):

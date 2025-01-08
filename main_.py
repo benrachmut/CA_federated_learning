@@ -5,6 +5,9 @@ import torchvision
 import torchvision.transforms as transforms
 from torch import nn, optim
 from torch.utils.data import DataLoader, random_split
+
+import config
+
 from config import *
 from functions import *
 from entities import *
@@ -15,28 +18,22 @@ class RecordData:
         self.loss_measures = loss_measures
         self.accuracy_pl_measures = accuracy_pl_measures
         self.accuracy_test_measures = accuracy_measures
-        self.mix_percentage = mix_percentage
-        self.seed_num= seed_num
-        self.epochs_num_input= epochs_num_input
-        self.iterations= iterations
-        self. server_split_ratio= server_split_ratio
-        self.num_classes=num_classes
-        self.identical_clients =identical_clients
-        self.num_clusters= num_clusters
-        self.with_server_net = with_server_net
-        self.server_net = server_net_type.name
-        self.client_net = client_net_type.name
+
+
         self.summary = (
-            f"num_clusters_{num_clusters}_"
-            f"Mix_Percentage_{mix_percentage}_"
-            f"Epochs_{epochs_num_input}_"
-            f"Iterations_{iterations}_"
-            f"Server_Split_Ratio_{server_split_ratio}_"
-            f"Num_Classes_{num_classes}_"
-            f"Identical_Clients_{identical_clients}"
-            f"with_server_net{with_server_net}"
-            f"server_net{server_net_type.name}"
-            f"client_net{client_net_type.name}"
+            f"clusters_{experiment_config.num_clusters}_"
+            f"batch_{experiment_config.batch_size}_"
+            f"trLRC_{experiment_config.learning_rate_train_c}_"
+            f"trainLR_{experiment_config.learning_rate_train_s}_"
+            f"tuneLR_{experiment_config.learning_rate}_"
+            f"Mix_P_{experiment_config.mix_percentage}_"
+            f"Epoch_{experiment_config.epochs_num_input}_"
+            f"Serv_ratio_{experiment_config.server_split_ratio}_"
+            f"Num_Class_{experiment_config.num_classes}_"
+            f"same_Clients_{experiment_config.identical_clients}_"
+            f"with_s_net{experiment_config.with_server_net}_"
+            f"s_net{experiment_config.server_net_type.name}_"
+            f"c_net{experiment_config.client_net_type.name}_"
 
         )
 
@@ -65,14 +62,18 @@ def create_pickle(clients, server):
         pickle.dump(rd, file)
 
 
+
 if __name__ == '__main__':
     print(device)
-    torch.manual_seed(seed_num)
+    exp_type = ExpType.short
+    experiment_config.update_type_of_experiment(exp_type)
+
+    torch.manual_seed(experiment_config.seed_num)
     clients_data_dict, server_data, test_set = create_data()
     clients,clients_ids = create_clients(clients_data_dict,server_data,test_set)
     server = Server(id_="server",global_data=server_data,test_data = test_set,clients_ids = clients_ids)
 
-    for t in range(iterations):
+    for t in range(experiment_config.iterations):
         print("----------------------------iter number:"+str(t))
         for c in clients:
             c.iterate(t)
@@ -84,8 +85,3 @@ if __name__ == '__main__':
             c.pseudo_label_received = server.pseudo_label_to_send
         create_pickle(clients,server)
 
-
-
-        #plot_average_loss(average_loss_df=average_loss_df,filename = file_name)
-
-        # Now compute the average test loss across clients
